@@ -20,9 +20,18 @@ defmodule Exbalance do
     Plug.Adapters.Cowboy.http(Exbalance.Server, [], [port: port])
   end
 
+  def start_test_servers(%{workers: []}), do: nil
+  def start_test_servers(%{workers: workers}) do
+    Enum.each(workers, fn(worker) ->
+      Plug.Adapters.Cowboy.http(Exbalance.TestServer, [], [port: worker[:port]])
+    end)
+  end
+
   def run do
-    Workers.get_config
-    |> start_server
+    config = Workers.get_config
+
+    start_test_servers(config)
+    start_server(config)
     # |> establish_connections
     # |> feed_requests
   end

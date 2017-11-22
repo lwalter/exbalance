@@ -1,6 +1,5 @@
 defmodule Exbalance.Server do
   require Logger
-  #plug Plug.Logger
 
   alias Exbalance.Workers
 
@@ -12,10 +11,12 @@ defmodule Exbalance.Server do
   def build_forward_request(conn = %Plug.Conn{}, {host, port}) do
     IO.inspect(conn)
 
-    # Query params is being lost
+    method = conn.method
+              |> String.downcase
+              |> String.to_atom
     {
-      "#{conn.scheme}://#{host}:#{port}#{conn.request_path}",
-      parse_method(conn.method),
+      "#{conn.scheme}://#{host}:#{port}#{conn.request_path}?#{conn.query_string}",
+      method,
       build_forwarded_headers(conn) ++ conn.req_headers,
       conn.body_params
     }
@@ -26,40 +27,18 @@ defmodule Exbalance.Server do
                   |> Tuple.to_list
                   |> Enum.join(".")
 
-    forwarded_headers = [{"X-Forwarded-For", client_ip},
-                        {"X-Forwarded-Scheme", parse_scheme(conn.scheme)},
-                        {"X-Forwarded-Host", conn.host},
-                        {"X-Forwarded-Port", conn.port}]
+    [{"X-Forwarded-For", client_ip},
+      {"X-Forwarded-Scheme", Atom.to_string(conn.scheme)},
+      {"X-Forwarded-Host", conn.host},
+      {"X-Forwarded-Port", conn.port}]
   end
 
-  def parse_scheme(:http), do: "http"
-  def parse_scheme(:https), do: "https"
-
-  def parse_method("GET"), do: :get
-  def parse_method("POST"), do: :post
-  def parse_method("DELETE"), do: :delete
-  def parse_method("HEAD"), do: :head
-  def parse_method("PUT"), do: :put
-  def parse_method("CONNECT"), do: :connect
-  def parse_method("OPTIONS"), do: :options
-  def parse_method("TRACE"), do: :trace
-  def parse_method("PATCH"), do: :patch
-
   def call(conn, options) do
-    {uri, method, headers, body} = build_forward_request(conn, Workers.get_worker)
+    {uri, method, headers, _body} = build_forward_request(conn, Workers.get_worker)
 
-    IO.inspect(uri)
-    IO.inspect(method)
-    IO.inspect(headers)
-    IO.inspect(body)
-
-    # TODO(lnw) error handling
-    resp = HTTPoison.request(method, uri, body, headers)
-
-    IO.inspect(resp)
-
+    resp = HTTPoison.request(method, uri, "", headers)
 
     conn
-    |> Plug.Conn.send_resp(200, "hello world")
+    |> Plug.Conn.send_resp(resp.status_code, resp.body)
   end
 end
