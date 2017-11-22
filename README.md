@@ -4,6 +4,16 @@ Exbalance is a rudimentary implementation of a load balancer using Elixir and OT
 ## How it works
 
 
+## TODO
+- [ ] Read config from file
+- [ ] Proxy requests with http request body
+- [ ] Worker statistics
+- [ ] Worker pool selection algorithms: round robin, least connections, ip hash
+- [ ] Persistance (sticky sessions)
+- [ ] SSL Offload option?
+- [ ] Server weighting
+- [ ] Worker pool updating
+
 ## Installation
 
 If [available in Hex](https://hex.pm/docs/publish), the package can be installed

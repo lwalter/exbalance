@@ -2,24 +2,31 @@ defmodule Exbalance.Server do
   require Logger
 
   alias Exbalance.Workers
+  alias Exbalance.Worker
 
   def init(default_options) do
     Logger.debug("Initializing load balancer")
     default_options
   end
 
-  def build_forward_request(conn = %Plug.Conn{}, {host, port}) do
+  def build_forward_request(conn = %Plug.Conn{}, %Worker{host: host, port: port}) do
     IO.inspect(conn)
 
     method = conn.method
               |> String.downcase
               |> String.to_atom
-    {
-      "#{conn.scheme}://#{host}:#{port}#{conn.request_path}?#{conn.query_string}",
+    query_string = if conn.query_string != nil
+                    && String.length(conn.query_string) > 0 do
+      "?#{conn.query_string}"
+    else
+      nil
+    end
+
+    # TODO(lnw) parse body correctly
+    {"#{conn.scheme}://#{host}:#{port}#{conn.request_path}#{query_string}",
       method,
       build_forwarded_headers(conn) ++ conn.req_headers,
-      conn.body_params
-    }
+      ""}
   end
 
   def build_forwarded_headers(conn = %Plug.Conn{}) do
@@ -33,12 +40,23 @@ defmodule Exbalance.Server do
       {"X-Forwarded-Port", conn.port}]
   end
 
-  def call(conn, options) do
-    {uri, method, headers, _body} = build_forward_request(conn, Workers.get_worker)
+  def call(conn, _options) do
+    {upstream_uri, method, upstream_headers, upstream_body} =
+      build_forward_request(conn, Workers.get_current_worker())
 
-    resp = HTTPoison.request(method, uri, "", headers)
+    Logger.debug(fn() -> "Sending request to: #{upstream_uri}" end)
+
+    {status, body} = with {:ok, resp} <-
+      HTTPoison.request(method, upstream_uri, upstream_body, upstream_headers) do
+        Logger.debug(fn() -> "Response received from #{upstream_uri}" end)
+        {resp.status_code, resp.body}
+    else
+      {:error, err} ->
+        Logger.error(fn () -> {"Could not send request to #{upstream_uri}", [additional: err]} end)
+        {500, ""}
+    end
 
     conn
-    |> Plug.Conn.send_resp(resp.status_code, resp.body)
+    |> Plug.Conn.send_resp(status, body)
   end
 end
