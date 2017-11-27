@@ -13,6 +13,10 @@ Exbalance is a rudimentary implementation of a load balancer using Elixir and OT
 - [ ] SSL Offload option?
 - [ ] Server weighting
 - [ ] Worker pool updating
+- [ ] Error handling
+
+## Development
+For aid in development there are ExpressJS based servers that can be ran from ```./dev_pool/index.js```. Simply run ```node ./dev_pool/index.js``` in a terminal window to start a couple worker servers for use in the load balancer.
 
 ## Installation
 

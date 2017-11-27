@@ -1,54 +1,54 @@
 defmodule Exbalance.Server do
   require Logger
+  use Plug.Router
 
   alias Exbalance.Workers
   alias Exbalance.Worker
 
-  def init(default_options) do
-    Logger.debug("Initializing load balancer")
-    default_options
-  end
+  plug Plug.Logger
+  plug :match
+  plug :dispatch
 
-  def build_forward_request(conn = %Plug.Conn{}, %Worker{host: host, port: port}) do
-    IO.inspect(conn)
+  def build_query_string(query_string) when is_binary(query_string) and byte_size(query_string) > 0, do: "?#{query_string}"
+  def build_query_string(_query_string), do: nil
 
-    method = conn.method
+  def build_forward_request(conn = %Plug.Conn{request_path: request_path,
+                                      scheme: scheme,
+                                      query_string: query_string,
+                                      method: method,
+                                      req_headers: req_headers},
+                            %Worker{host: host, port: port}) do
+    method = method
               |> String.downcase
               |> String.to_atom
-    query_string = if conn.query_string != nil
-                    && String.length(conn.query_string) > 0 do
-      "?#{conn.query_string}"
-    else
-      nil
-    end
+    query_string = build_query_string(query_string)
 
-    # TODO(lnw) parse body correctly
-    {"#{conn.scheme}://#{host}:#{port}#{conn.request_path}#{query_string}",
+    {"#{scheme}://#{host}:#{port}#{request_path}#{query_string}",
       method,
-      build_forwarded_headers(conn) ++ conn.req_headers,
+      build_forwarded_headers(conn) ++ req_headers,
       ""}
   end
 
-  def build_forwarded_headers(conn = %Plug.Conn{}) do
-    client_ip = conn.remote_ip
+  def build_forwarded_headers(%Plug.Conn{remote_ip: remote_ip, scheme: scheme, host: host, port: port}) do
+    client_ip = remote_ip
                   |> Tuple.to_list
                   |> Enum.join(".")
 
     [{"X-Forwarded-For", client_ip},
-      {"X-Forwarded-Scheme", Atom.to_string(conn.scheme)},
-      {"X-Forwarded-Host", conn.host},
-      {"X-Forwarded-Port", conn.port}]
+      {"X-Forwarded-Scheme", Atom.to_string(scheme)},
+      {"X-Forwarded-Host", host},
+      {"X-Forwarded-Port", port}]
   end
 
-  def call(conn, _options) do
+  match _ do
     {upstream_uri, method, upstream_headers, upstream_body} =
       build_forward_request(conn, Workers.get_current_worker())
 
-    Logger.debug(fn() -> "Sending request to: #{upstream_uri}" end)
+    Logger.info(fn() -> "Sending request to: #{upstream_uri}" end)
 
     {status, body} = with {:ok, resp} <-
       HTTPoison.request(method, upstream_uri, upstream_body, upstream_headers) do
-        Logger.debug(fn() -> "Response received from #{upstream_uri}" end)
+        Logger.info(fn() -> "Response received from #{upstream_uri}" end)
         {resp.status_code, resp.body}
     else
       {:error, err} ->
