@@ -7,6 +7,7 @@ Exbalance is a rudimentary implementation of a load balancer using Elixir and OT
 ## TODO
 - [ ] Read config from file
 - [ ] Proxy requests with http request body
+- [ ] Cookies?
 - [ ] Worker statistics
 - [ ] Worker pool selection algorithms: round robin, least connections, ip hash
 - [ ] Persistance (sticky sessions)

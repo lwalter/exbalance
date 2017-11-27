@@ -6,6 +6,9 @@ defmodule Exbalance.Server do
   alias Exbalance.Worker
 
   plug Plug.Logger
+  #plug Plug.Parsers, parsers: [:urlencoded, :multipart, :json],
+  #                    pass: ["*/*"],
+  #                    json_decoder: Poison
   plug :match
   plug :dispatch
 
@@ -23,10 +26,17 @@ defmodule Exbalance.Server do
               |> String.to_atom
     query_string = build_query_string(query_string)
 
+    # TODO(lnw) Should we be parsing?
+    body = with {:ok, body, _conn} <- read_body(conn) do
+      body
+    else
+      _ -> raise "Could not read request body"
+    end
+
     {"#{scheme}://#{host}:#{port}#{request_path}#{query_string}",
       method,
       build_forwarded_headers(conn) ++ req_headers,
-      ""}
+      body}
   end
 
   def build_forwarded_headers(%Plug.Conn{remote_ip: remote_ip, scheme: scheme, host: host, port: port}) do
@@ -41,19 +51,19 @@ defmodule Exbalance.Server do
   end
 
   match _ do
-    {upstream_uri, method, upstream_headers, upstream_body} =
+    {up_uri, method, up_headers, up_body} =
       build_forward_request(conn, Workers.get_current_worker())
 
-    Logger.info(fn() -> "Sending request to: #{upstream_uri}" end)
+    Logger.info(fn() -> "Sending request to: #{up_uri}" end)
 
     {status, body} = with {:ok, resp} <-
-      HTTPoison.request(method, upstream_uri, upstream_body, upstream_headers) do
-        Logger.info(fn() -> "Response received from #{upstream_uri}" end)
+      HTTPoison.request(method, up_uri, up_body, up_headers) do
+        Logger.info(fn() -> "Response received from #{up_uri}" end)
         {resp.status_code, resp.body}
     else
       {:error, err} ->
-        Logger.error(fn () -> {"Could not send request to #{upstream_uri}", [additional: err]} end)
-        {500, ""}
+        Logger.error(fn() -> {"Could not send request to #{up_uri}", [additional: err]} end)
+        {500, "Internal server error"}
     end
 
     conn

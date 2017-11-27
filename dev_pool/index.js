@@ -21,6 +21,9 @@ poolConfig.forEach((config) => {
   app.use(bodyParser.json());
 
   responseCb = (req, res) => {
+    if (req.body) {
+      console.log(req.body);
+    }
     res.send('Hello World from ' + config.name);
   }
   app.get('*', responseCb);
