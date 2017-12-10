@@ -3,70 +3,42 @@ defmodule Exbalance.Server do
   use Plug.Router
 
   alias Exbalance.Workers
-  alias Exbalance.Worker
 
   plug Plug.Logger
+  # TODO(lnw) Should we be parsing?
   #plug Plug.Parsers, parsers: [:urlencoded, :multipart, :json],
   #                    pass: ["*/*"],
   #                    json_decoder: Poison
   plug :match
   plug :dispatch
 
-  def build_query_string(query_string) when is_binary(query_string) and byte_size(query_string) > 0, do: "?#{query_string}"
-  def build_query_string(_query_string), do: nil
+  @spec merge_upstream_headers(%Plug.Conn{}, [{String.t, String.t}])
+    :: %Plug.Conn{}
+  def merge_upstream_headers(conn = %Plug.Conn{resp_headers: resp_headers}, upstream_headers) do
+    Logger.debug("Upstream headers:")
+    IO.inspect(upstream_headers)
 
-  def build_forward_request(conn = %Plug.Conn{request_path: request_path,
-                                      scheme: scheme,
-                                      query_string: query_string,
-                                      method: method,
-                                      req_headers: req_headers},
-                            %Worker{host: host, port: port}) do
-    method = method
-              |> String.downcase
-              |> String.to_atom
-    query_string = build_query_string(query_string)
+    Logger.debug("Load balancer headers:")
+    IO.inspect(resp_headers)
 
-    # TODO(lnw) Should we be parsing?
-    body = with {:ok, body, _conn} <- read_body(conn) do
-      body
-    else
-      _ -> raise "Could not read request body"
-    end
-
-    {"#{scheme}://#{host}:#{port}#{request_path}#{query_string}",
-      method,
-      build_forwarded_headers(conn) ++ req_headers,
-      body}
+    %{conn | resp_headers: resp_headers ++ upstream_headers}
   end
 
-  def build_forwarded_headers(%Plug.Conn{remote_ip: remote_ip, scheme: scheme, host: host, port: port}) do
-    client_ip = remote_ip
-                  |> Tuple.to_list
-                  |> Enum.join(".")
-
-    [{"X-Forwarded-For", client_ip},
-      {"X-Forwarded-Scheme", Atom.to_string(scheme)},
-      {"X-Forwarded-Host", host},
-      {"X-Forwarded-Port", port}]
-  end
-
+  #####################################
+  # Catch-all route for request traffic
+  #####################################
   match _ do
-    {up_uri, method, up_headers, up_body} =
-      build_forward_request(conn, Workers.get_current_worker())
+    Logger.debug("Received request")
+    {status, headers, body} = conn
+                              |> Workers.build_request
+                              |> Workers.send_request
 
-    Logger.info(fn() -> "Sending request to: #{up_uri}" end)
-
-    {status, body} = with {:ok, resp} <-
-      HTTPoison.request(method, up_uri, up_body, up_headers) do
-        Logger.info(fn() -> "Response received from #{up_uri}" end)
-        {resp.status_code, resp.body}
-    else
-      {:error, err} ->
-        Logger.error(fn() -> {"Could not send request to #{up_uri}", [additional: err]} end)
-        {500, "Internal server error"}
-    end
+    Logger.debug("===== Conn =====")
+    IO.inspect(conn)
+    Logger.debug("===== END - Conn =====")
 
     conn
+    |> merge_upstream_headers(headers)
     |> Plug.Conn.send_resp(status, body)
   end
 end
